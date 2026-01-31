@@ -1,0 +1,71 @@
+------------------------------------------------------------------------------------------
+
+
+COURSE: Advanced AI
+TOPIC: Advanced Prompt Engineering & Optimization
+DUE-DATE: 1 Feb 2026
+
+
+INSTRUCTIONS:
+1. Do not modify any tag in this file. Just type your answers in the designated place.
+2. Do not change the file name and/or extension.
+3. Upload this file after answering in the portal.
+
+
+------------------------------------------------------------------------------------------
+
+
+<<< QUESTION 1 >>>
+
+
+What are the different kinds of challenges for LLM prompting? State two differences between LLM Jailbreaking and Backdoor attack?
+
+
+### WRITE ANSWER BELOW ###
+
+The challenges in LLM prompting are as below:
+	1. Context token window limit – LLMs have a limited context window. If the prompt is long or complex it can lead to model losing the earlier context 	or instructions.
+	2. Hallucination – LLMs may exhibit confidence while providing incorrect responses when prompt asks for facts that is not included in the training 	data.
+	3. Ambiguous prompts – Ambiguous or unclear prompts can lead to irrelevant or incorrect responses. 
+	4. Bias – Biased training data can lead to biased outputs.
+	5. Prompt Sensitivity – Small or minute changes to the tone or wording of the prompt can lead very different outputs.
+	6. Misuse and security concerns – Prompts  can designed to bypass security controls or extract sensitive information.
+
+Differences between LLM Jailbreaking and Backdoor attack – 
+	1.Jailbreaking is a technique used by bad actors to bypass safety checks or restrictions by using cleverly articulated prompts. Whereas, backdoor 	attack is done during the training phase to manipulate the model to output harmful responses.
+	2.Jailbreaking is not a permanent attack and is valid only during the current session. Whereas, backdoor attack is a permanent attack that will be 	present until the model is retrained. 
+
+
+
+
+
+
+<<< QUESTION 2 >>>
+
+
+How does DSP help in getting accurate responses?
+
+
+### WRITE ANSWER BELOW ###
+
+
+Directional Stimulus Prompting (DSP) Is a prompting method where directional signals are added to the prompt to guide the model towards the desired output.
+	1. Reduces ambiguity – DSP reduces misunderstanding and clarifies the intent of the prompt. 
+	2. Reduces hallucinations – When given the direction signal, the model will rely more on facts and output less fabricated or incorrect facts.
+	3. Guides Model – Signals, hints or phrased provided in DSP helps the model focus on the information need for the task at hand and in turn improving 	the output.
+	4. Consistency – Adding the same direction signals can lead to repeatable and consistent results. 
+
+
+
+
+<<< QUESTION 3 >>>
+
+
+What is direct prompt injection?
+
+
+### WRITE ANSWER BELOW ###
+
+Direct prompt injection is an attack on the LLM where a malicious actor provided specially crafted manipulative prompts to the LLM to override the original instructions. The prompt is targeted to make the model ignore safety guidelines, perform harmful actions or reveal sensitive information. This attacks works because LLMs treat both system prompts and user prompts as a single stream of commands.
+
+E.g.: A model instructed to summarize conversations may be direct prompt injected by a user to ignore all previous instructions and  perform a harmful action.

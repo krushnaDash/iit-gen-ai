@@ -1,0 +1,153 @@
+﻿------------------------------------------------------------------------------------------
+
+
+COURSE: Advanced AI
+TOPIC: Overview of key models: GPT, BERT,T5, LLaMA, Falcon.
+DUE-DATE: 25 Jan 2025
+
+
+INSTRUCTIONS:
+1. Do not modify any tag in this file. Just type your answers in the designated place.
+2. Do not change the file name and/or extension.
+3. Upload this file after answering in the portal.
+
+
+------------------------------------------------------------------------------------------
+
+
+<<< QUESTION 1 >>>
+
+
+What is the additional number of parameters that you will need apart from the pretrained weights in the following scenarios? (a) Text classification (3 classes) using BERT-base, (b) Text Summarization using T5.
+
+
+### WRITE ANSWER BELOW ###
+
+(a) Text classification (3 classes) using BERT-base:
+
+BERT-base has 768 hidden dimension and 30,522 vocabulary size, for text classification (3 classes) using BERT-base, 
+we need to add a classification head on top of the [CLS] token output.
+
+Number of parameters = (hidden dimension * number of classes) + number of classes = (768 * 3) + 3 = 2307
+
+So we need additional 2307 parameters.
+
+(b) Text Summarization using T5:
+
+T5 is an encoder-decoder model with a "text-to-text" framework
+Uses span corruption as pretraining objective (masking consecutive spans)
+All tasks are framed as text-to-text: input text -> output text
+T5 can be used for various tasks including summarization
+
+For text summarization:
+T5 already has a language modeling head that maps to vocabulary
+Summarization is handled by prefixing input with "summarize:"
+The decoder generates output tokens from the same vocabulary
+No new output layer or classification head is needed
+
+So the answer is 0 additional parameters for T5 to do text summarization.
+
+
+
+<<< QUESTION 2 >>>
+
+
+Consider a task where you would have a paragraph and a question as input, and you need to generate the answer. Which pretrained model would you use among BERT, GPT and T5? What are the advantages and disadvantages of the allowed architectures in terms of (a) number of parameters to be fine-tuned and (b) representation capacity in the context of this problem?  Can you think of a method that can take advantage of each of the allowed architectures? [Assume that all these models have the same model dimension and number of layers]
+
+
+### WRITE ANSWER BELOW ###
+
+Recommendation is T5 since it has both encoder and decoder and  it combines bidirectional encoding for understanding 
+with autoregressive decoding for generation.
+
+Analysis of Each Architecture:
+
+1. T5 (Encoder-Decoder)
+   T5 uses bidirectional encoder + autoregressive decoder with text-to-text framework.
+   
+   (a) Number of parameters to fine-tune:
+   -> Disadvantage: Has both encoder and decoder -> roughly 2× parameters compared to encoder-only or decoder-only (assuming same d_model and layers)
+   -> Advantage: No task-specific head needed; reuses existing architecture
+   
+   (b) Representation capacity:
+   -> Advantage: Best of both worlds:
+      Bidirectional encoder for rich understanding of paragraph + question
+      Autoregressive decoder for fluent answer generation
+   -> Advantage: Pretrained on diverse text-to-text tasks 
+   -> Disadvantage: Cross-attention adds computational overhead
+   
+   Method to leverage T5:
+   -> Input: "question: {question} context: {paragraph}"
+   -> Output: Generated answer text directly
+   -> Natural fit for the text-to-text paradigm
+
+2. BERT (Encoder-only)
+    BERT uses bidirectional context with masked language modeling.
+   
+   (a) Number of parameters to fine-tune:
+   -> Advantage: For extractive QA, only add span prediction head: 2 × d_model = 2 × 768 = 1,536 parameters (for start/end position prediction)
+   -> Disadvantage: For generative QA, must add entire decoder (~same parameters as encoder), doubling fine-tuning parameters
+   
+   (b) Representation capacity:
+   -> Advantage: Bidirectional attention captures full context of paragraph and question simultaneously
+   -> Disadvantage: Cannot generate text natively, limited to extractive answers (selecting spans from input)
+   
+   Method to leverage BERT:
+   -> Extractive QA: Input [CLS] + paragraph + [SEP] + question + [SEP]
+   -> Predict start and end positions of answer span within the paragraph
+   -> For generative: Add a decoder on top of BERT encoder
+3. GPT (Decoder-only)
+   
+   GPT uses unidirectional (left-to-right) autoregressive language modeling.
+   
+   (a) Number of parameters to fine-tune:
+   -> Advantage: Zero additional parameters for generation (reuses LM head)
+   -> Note: Can use in-context learning without fine-tuning
+   
+   (b) Representation capacity:
+   -> Advantage: Excellent at generating fluent, coherent answers
+   -> Disadvantage: Unidirectional attention - cannot attend to future tokens; understanding of paragraph may be weaker since it processes left-to-right only
+   
+   Method to leverage GPT:
+   -> In-context learning  : Append task description and demonstrations to input
+   -> Format: "Paragraph: {text}\nQuestion: {question}\nAnswer:" → generate autoregressively
+   -> Zero-shot or few-shot prompting
+
+
+<<< QUESTION 3 >>>
+
+
+Show that the self-attention score in the rotatory embeddings depends on the positional difference between the query and key.
+
+
+### WRITE ANSWER BELOW ###
+
+Rotary positional embeddings model positional context as rotations to token embeddings in a complex space.
+
+ei=XiR(i)
+Where R(i) is a rotation matrix that depends on the position i.
+
+Ro(X, θ) =XR(θ)
+Example of two dimensions token embedding: [x1,x2]= [cos(θ), sin(θ)]
+                                                    [-sin(θ), cos(θ)] 
+                                                    =[cos(θ).x1-sin(θ).x2, sin(θ).x1+cos(θ).x2] 
+
+Rotating a vector by an angle θ for t times, where t is the position:
+- At position t, the representation is Ro(x, tθ)
+- Each step forward rotates the vector by angle θ
+
+Apply RoPE to Query and Key 
+
+For example take some sentences
+
+sentence1-> Every1 Afternoon2, 3, you4 will5 find6 that7 the8 cat9 is10 sleeping11 on12 my13 bed14.
+sentence2-> The1 cat2 is3 sleeping4 peacefully5 in6 the7 warm8 sun9 light10.
+
+In the above example the distance between cat and sleeping is the same in both sentences, 
+the angle between their embeddings also remains the same during rotation.
+
+This proves that RoPE makes self-attention scores depend on relative positional difference (m-n), not absolute positions. Benefits:
+1. Better generalization to unseen sequence lengths
+2. Natural relative position encoding without explicit position matrices
+3. Rotations preserve embedding magnitude : Rotations do not change the magnitude of the embedding
+
