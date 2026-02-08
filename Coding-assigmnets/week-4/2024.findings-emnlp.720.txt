@@ -1,0 +1,630 @@
+A supervised ranking model, despite its effectiveness over traditional approaches, usually
+involves complex processing - typically multiple stages of task-specific pre-training and
+fine-tuning. This has motivated researchers
+to explore simpler pipelines leveraging large
+language models (LLMs) that can work in a
+zero-shot manner. However, since zero-shot
+inference does not make use of a training set of
+pairs of queries and their relevant documents,
+its performance is mostly worse than that of
+supervised models, which are trained on such
+example pairs. Motivated by the existing findings that training examples generally improve
+zero-shot performance, in our work, we explore if this also applies to ranking models.
+More specifically, given a query and a pair of
+documents, the preference prediction task is
+improved by augmenting examples of preferences for similar queries from a training set.
+Our proposed pairwise few-shot ranker demonstrates consistent improvements over the zeroshot baseline on both in-domain (TREC DL)
+and out-domain (BEIR subset) retrieval benchmarks. Our method also achieves a close performance to that of a supervised model without
+requiring any complex training pipeline.
+1 Introduction
+Development of novel neural architectures and
+training methodologies (Pradeep et al., 2021; Izacard et al., 2022a; Formal et al., 2021; Wang et al.,
+2023; Karpukhin et al., 2020a) have substantially
+outperformed the unsupervised approaches. Commonly, these neural approaches involve deep interactions between embedded representations of
+queries and documents (Dai and Callan, 2019;
+Khattab and Zaharia, 2020) thus overcoming the vocabulary mismatch problem of discrete term representations. However, to achieve good performance,
+not only do these deep neural models require a
+large number of training data in the form of pairs
+of example queries and their relevant documents
+(Gao and Callan, 2022; Saeed et al., 2021), but the
+effectiveness of these models also depends on a
+number of ad-hoc decision choices, e.g., the following.
+
+(Zhuang et al., 2022; Ouyang et al., 2022a). In
+contrast, our work, while on the one hand, employs
+an unsupervised approach (i.e., with no parametric
+training involved), it is able to make use of the training data of query-relevance examples via few-shot
+prompting on the other.
+More specifically, as outlined in Figure 1, in
+our approach, following the methodology of (Qin
+et al., 2023) we input a query and a pair of documents seeking to estimate the relative preferential
+order between the pair. However, in contrast to the
+PRP (pairwise rank prompting) method of Qin et al.
+(2023), we input a set of queries (from an available
+training set) that are related to the current query
+in terms of an abstract similarity measure. This is
+motivated from the well-known cognitive bias attribute substitution effect in psychology, where to
+answer an unknown question, human brains recollect known answers to related questions and eventually process information from them to answer
+the unknown one (Kahneman and Frederick, 2002;
+Honda et al., 2017).
+In our work, we emulate this behavior of attribute substitution heuristics on LLMs, where in
+additional context (Brown et al., 2020), we provide
+examples of related queries and their relevant documents. The hypothesis is that LLMs, with their
+inherent language processing abilities, should be
+able to make a more informed judgment of pairwise
+relevance by processing the examples provided.
+This proposed workflow requires investigating
+a number of research questions and challenges including: “how to retrieve an effective set of related queries for a given input?”, and “what is the
+downstream effect of the similarity of the information needs of the related queries”. Our experiments show that an embedding-based neighborhood to retrieve related queries yields better downstream effectiveness than a lexical model, and we
+also show that a small number of examples can,
+in fact, lead to consistent improvements over the
+zero-shot PRP approach (Qin et al., 2023). Our
+experiments also demonstrate the potential of this
+unsupervised method for out-of-domain generalization. More specifically, we show that examples
+queries from MS-MARCO lead to improvements
+on TREC Covid and SciFact test collections. The
+source code of our proposed LLM-based few-shot
+ranker1 is made available for research purposes.
+
+Zero-shot Information Retrieval with LLMs.
+Generative language models exhibit generalization
+capabilities beyond the tasks on which they are
+trained (Ouyang et al., 2022b; Touvron et al.,
+2023). Naturally, this has led to a number of
+effective zero-shot approaches to NLP tasks. Sun
+et al. (2023) first proposed the use of LLMs
+as cross-encoders in a list-wise ranking setting.
+Similar results were observed by Ma et al. (2023c)
+using a different prompting strategy. A common
+thread of work proposes distilling list-wise
+closed source models into smaller decoder-only
+architectures (Pradeep et al., 2023a,b; Zhang et al.,
+2023). They report that, in some cases, a student
+model could outperform a significantly larger
+teacher model (Pradeep et al., 2023b). Beyond
+list-wise ranking, LLMs have additionally been
+applied in a bi-encoder setting (Ma et al., 2023a).
+Qin et al. (2023) first applied large language
+models to pair-wise ranking, finding that in a truly
+zero-shot setting, such an approach was competitive on out-of-domain benchmarks. Zhuang et al.
+(2024a) further improved both the efficiency and
+effectiveness of pair-wise ranking.
+In-Context Learning (ICL). In-context learning
+or few-shot learning is an inference strategy that
+differs from the standard notion of supervised learning in the sense that labeled examples are appended
+to a model instruction improving effectiveness in
+an out-of-domain downstream task (Ni et al., 2021;
+Li et al., 2022). Though initially considered to
+guide sequence generation in tasks such as question answering and abstractive summarization (Li
+et al., 2023; Tang et al., 2023), ICL has been shown
+to be effective in classification-style tasks (Lu et al.,
+2022; Milios et al., 2023) and, therefore, could be
+effective in a cross-encoder setting for ranking. In
+terms of example selection for ICL, prior work has
+found that conditioning chosen examples on the
+current test instance is effective (Nie et al., 2022;
+Xie et al., 2023).
+3 Methodology
+3.1 Overview of Zero-shot PRP
+Pointwise Relevance Score Estimation. A parameterized pointwise ranking model, given a
+query Q and a candidate document D involves
+computing a relevance estimation function of the
+form S(Q,D; θ), where θdenotes a parameter vec
+
+tor trained by noise contrastive loss in a pairwise
+(Pradeep et al., 2021) or listwise manner (Zhuang
+et al., 2022; Sun et al., 2023). As candidates for
+the pairwise comparisons, it is common to employ
+a standard sparse retrieval (e.g., BM25) and then
+compute the likelihood values for each pair.
+Unlike a supervised approach, which involves
+optimizing the parameters θof a model via pairwise
+or listwise loss functions, an LLM-based ranker employs its frozen parameters to predict the relevance
+score. In the simplest possible setting, this takes the
+form of pointwise predictions, i.e., S(Q,D; θ) =
+f(Q,D,θLLM), where θLLM refers to frozen pretrained parameters (not fine-tuned specifically with
+a ranking objective). In practice, the function
+f(Q,D,θLLM) represents a function of the posterior probability (logits) of a pre-specified set of
+tokens, e.g., the function f for Mono-T5 is defined
+as eθ(‘true’)/(eθ(‘true’) + eθ(‘false’)).
+Pairwise Rank Prompting (PRP). Although
+such pointwise relevance score estimation has been
+used for training data augmentation (Sun et al.,
+2023), IR system evaluation (Faggioli et al., 2024)
+and also for query performance prediction (Meng
+et al., 2024), Qin et al. (2023) has shown that for
+the purpose of ranking, pairwise estimation of relevance is more effective than the simpler pointwise
+approach. More specifically, instead of explicitly
+predicting SθLLM : Q,D→R, an LLM decoder is
+now used to predict the relative preference order
+between a pair of documents Dand D′. Formally,
+the prediction is of the form
+f(Q,D,D′,θLLM) →I(D≻D′), (1)
+where D≻D′indicates that it is more likely that
+Dis more relevant to the query Qthan D′, meaning
+that Dshould be preferred over D′
+.
+In practice, to estimate the preference score of
+a pivot document Dagainst another document D′
+,
+two different predictions are obtained from an LLM
+with two different input prompts - first with the
+sequence (D,D′) and the second with the order
+swapped, i.e., (D′,D). More specifically, the probability that the first document in the sequence is
+to be preferred over the second one is given by
+θ1,2 = eθ(‘1’)/(eθ(‘1’) + eθ(‘2’)), and the complementary probability θ2,1 is given by swapping ‘1’
+with ‘2’ in the expression. If these two probabilities
+are consistent, i.e., both θ1,2(D,D′) >θ2,1(D,D′)
+and θ2,1(D′,D) > θ1,2(D′,D) are true then the
+
+
+preference score of Dagainst D′is set to 1. Similarly, the preference score of Dagainst D′is set to
+0 for the other consistent alternative. The score is
+set to an uncertainty level of 1/2 for inconsistent
+predictions. In a compact notation, the preference
+score of a pivot document Dwith respect to another
+document D′is thus defined as
+P(D≻D′) = 1
+2[I(θ1,2(D,D′) >θ2,1(D,D′))+
+I(θ2,1(D′,D) >θ1,2(D′,D))].
+Clearly, P(D≻D′) ∈{0,
+1
+2 ,1}.
+Finally, to obtain the overall score of a single
+document D, a common practice in pairwise inference models (Pradeep et al., 2021; Qin et al., 2023)
+is to aggregate the relative preference indicators of
+a pivot document Dagainst every other document
+D′in the top-kretrieved candidate set Dk, i.e.,
+S(Q,D,θLLM) =
+D′∈Dk −{D}
+P(D≻D′), (3)
+with P(D≻D′) as defined in Equation 2.
+3.2 Proposed Few-shot PRP
+Utilising Training Queries. The estimated preference indicators of Equation 1 depend only on the
+text of the current query (Q), and that of the document pairs (Dand D′). Therefore, unlike a supervised model, Equation 1 is unable to make use of
+information from a training set of query-relevance
+example pairs of the form Q= ∪i(Qi,R(Qi)).
+We propose to modify Equation 1 by making
+the LLM generation process depend also on an
+additional context of the relevance/non-relevance
+information from training set queries that are similar to the input query Q. More formally, the k-shot
+version of the function f is now defined as
+fk(Q,D,D′
+,Nk(Q),θLLM) →I(D≻D′), (4)
+where Nk(Q) indicates a neighborhood of ksimilar
+queries from a training set Q, i.e.,
+
+Nk(Q) = ∪k
+i=1{Q′∈Q: Q′= arg max
+
+5)
+where the notation arg maxi indicates the index
+of the ith largest value, and σ(Q,Q′) denotes a
+generic similarity measure between the query pair
+(Q,Q′). As practical choices for the query similarity function σ(Q,Q′), we employ a lexical (BM25)
+
+
+and a semantics-based approach (BERT). Although
+a fine-tuned supervised model, e.g., one that is
+trained on query-relevance semantics, can potentially yield better neighbourhoods of queries for
+ICL, we avoid using such models for neighbourhood construction in order to keep our approach
+completely unsupervised and non-parametric.
+In practice, to select k-shot examples, we first
+construct a neighbourhood of top-K(K >k) candidate queries by employing a sparse or a dense
+index. Since the downstream effect of an example on an LLM’s inference is not a deterministic
+function, we do not solely rely on the similarity
+function σitself, i.e., BM25 or BERT. Instead, we
+randomly sample a subset of kexamples from this
+set of top-Kcandidates.
+Positives and Hard Negatives. A training set
+query Q′∈Qcontains examples of relevant documents R(Q′). For each query Q′∈Q, we sample
+a single relevant document RQ′ ∼R(Q′). In addition, following the common practice of noise
+contrastive learning (Xiong et al., 2020), we sample a non-relevant document as a hard negative
+from ranks mto M(m < M) of a BM25 retrieved
+list of documents for the training query Q′, i.e.,
+NQ′ ∼ DM(Q′) −Dm(Q′) : NQ′ / ∈ R(Q′).
+Specifically, for our experiments m = 100 and
+M = 200, and Dk(Q) denotes the top-kBM25 list
+of documents for a query Q.
+The triple ⟨Q′,RQ′ ,NQ′ ⟩constitutes a single
+example that we input to an LLM. To avoid the
+bias of setting the ground-truth preference indicator
+label to always a ‘1’, we randomly flip the pair
+to (NQ′ ,RQ′ ), in which case the reference label
+becomes ‘2’ (see Figure 2). We then repeat the
+process until kexamples are included.
+The post-inference process is identical to that of
+Equations 2 and 3, the only difference being that
+the relative preference scores now depend on the
+additional context of the examples and the reference preference indicators of these examples.
+
+
+Research Questions. Since our proposed
+methodology is a relatively simple way to leverage
+information from a training set of query-relevance
+example pairs, the first research question is
+directed towards finding if this additional context
+from a training set helps improve zero-shot
+performance. Explicitly stated,
+
+
+Figure 2: An example prompt to illustrate the structure
+of the prompts used for few-shot PRP.
+• RQ-1: Does leveraging information from example query-relevance pairs improve retrieval effectiveness over zero-shot PRP?
+Nie et al. (2022) has shown that a localized
+neighbourhood of examples similar to the current
+instance helps improve the performance of ICL. In
+our proposed approach (Equation 4), as particular choices for the query neighbourhood selection
+function Nk(Q), we use BM25 (sparse BoW) and
+BERT (dense). Both the neighbourhood functions
+aim to retrieve queries from a training set that potentially has an information need that is similar to
+the current input query. More precisely,
+• RQ-2: Does employing queries with information
+needs that are potentially similar to the current
+query as few-shot examples in PRP help improve
+retrieval effectiveness?
+Next, we explore the out-of-domain generalization of our non-parametric approach, i.e., the objective is to see if examples of relevant documents
+for source domain queries (that are likely to be topically shifted information needs as caused by the
+change of domain) can still help improve retrieval
+on the target domain.
+• RQ-3: Can queries retrieved from a training set
+of a source domain, when used as examples in
+few-shot PRP, improve retrieval effectiveness on
+target domain queries?
+
+
+Table 1: Statistics of the datasets used in our experiments. The |¯
+Q|and |¯
+D|denote the average number of
+query and document terms, respectively.
+D|
+56.11MARCO Coll #Docs Topics Topics |¯
+Q| |¯
+MS
+Passage BEIR 8.8M
+171332 Train ≈503K 5.97
+DL’19 43 5.40
+DL’20 54 6.04
+TREC-COVID 50 3.48 182.25
+5183 SciFact 300 13.05 209.86
+
+
+Datasets. We evaluate our approach on the MS
+MARCO passage collection (Bajaj et al., 2016)
+comprising over 8.8 million documents collated
+from the Bing search engine and then segmented
+into relatively short passages. For IR evaluation,
+we use the TREC deep learning track topics of 2019
+and 2020, respectively denoted as DL’19 (Craswell
+et al., 2020) and DL’20 (Craswell et al., 2021).
+To investigate RQ-3, we employ two test collections from the BEIR dataset (Thakur et al., 2021)
+for out-of-domain evaluation - namely the TREC
+Covid (Wang et al., 2020) and the SciFact collections (Wadden et al., 2020). While the former is a
+corpus of academic papers about COVID-19 and
+related coronavirus research, the latter is a scientific claim validation dataset. Table 1 summarizes
+the datasets used in our experiments.
+4.1 LLM settings and Evaluation
+Evaluation metrics. Following the standard convention (Craswell et al., 2021, 2020), for the DL
+topic sets, as evaluation metrics we report the
+mean average precision (MAP) at cut-off 100
+(MAP@100) with the binary relevance threshold
+set to 2, and normalized discounted cumulative gain
+(nDCG) computed at cut-off 10 (nDCG@10). For
+BEIR, again following the standard practice, we
+report nDCG@10 (Qin et al., 2023; Thakur et al.,
+2021).
+As a qualitative measure of the relatedness between the example queries and the input query,
+we compute the average topical similarity of the
+neighbourhood of the input query. In particular,
+we report a term-overlap-based similarity between
+the input query and its neighbours. Specifically,
+as the term overlap measure, we employ Jaccard
+similarity between query pairs (Zendel et al., 2019).
+Formally,
+J(Nk(Q)) = 1
+k
+Q′∈Nk (Q)
+Q∩Q′
+Q∪Q′. (6)
+For a given benchmark set of topics, we report
+
+
+the average value of J(Nk(Q)) aggregated over
+all queries, which we report in our results with the
+notation¯
+J(Nk).
+LLM Details. We employ the following as foundation LLMs for the 0-shot and few-shot PRP.
+• FLAN-T5: This is an encoder-decoder model,
+specifically an instruction fine-tuned version of
+the T5 model (Chung et al., 2022). Our experiment uses the FLAN-T5-XL (3B parameters)
+variant. Although the model yields effective zeroshot performance as reported by Qin et al. (2023),
+this model is limited to an input size of 512 tokens only, which somewhat limits the number of
+examples for few-shot PRP.
+• Zephyr, a decoder-only LLM, is a fine-tuned
+version of Mistral (7B) (Jiang et al., 2023) finetuned on publicly available synthetic datasets.
+The maximum input length of this LLM is 4096,
+which affords a greater number of examples for
+few-shot PRP.
+4.2 Methods Investigated
+For all the methods investigated on TREC DL topics, we employ a two-stage reranking pipeline,
+with BM25 as the first-stage ranker. The different second-stage rankers, which we describe next,
+are used to rerank the top 100 documents. Since
+the OOD retrieval task (on BEIR) is primarily a
+precision-centric one, we rerank only the top 20
+documents from BM25, the first-stage ranker.
+Baselines. the following baselines.
+We compare our few-shot PRP with
+• BM25: A strong term-weighting approach operating over bag-of-words representations.
+• 0-shot PRP (Qin et al., 2023): This is the zeroshot PRP methodology outlined in Equation 1.
+As foundation models, we employ both Flan-T5,
+which was also used by Qin et al. (2023), and
+Zephyr. As a naming convention, we append the
+suffix ‘0S’ to the underlying LLM’s name, e.g.,
+‘Zephyr-0S’. As a score computation strategy,
+we used aggregation over all pairs of documents
+in the top-kset, as prescribed by Qin et al. (2023)
+and Pradeep et al. (2021).
+• Few-shot PRP with static examples: This baseline uses static few-shot examples (i.e., the same
+example across all test queries) instead of a local neighborhood of related queries for a given
+input query. The objective of this baseline is to
+confirm if topically related contexts indeed help
+
+
+improve the ranking task, as is usually the case
+for other NLP tasks such as text classification
+(Liu et al., 2022). Similar to the zero-shot PRP
+baseline, we refer to this method with the name
+of the LLM used followed by the suffix kS, e.g.,
+‘Zephyr-1S’.
+In addition to the above baselines, we report results with an effective supervised cross-encoder
+monoT5. It is a T5 model fine-tuned on the MS
+MARCO training queries in a point-wise setting
+using the probability of the token ‘true’ as an estimate of relevance. Although an unsupervised PRP
+approach is not directly comparable to a supervised
+approach, such as monoT5, we nonetheless include
+the results of an effective supervised model as a reference point for comparison. While presenting the
+results in Table 4, to prevent direct comparisons between unsupervised PRP and supervised monoT5
+models, we gray out the latter.
+Variants of proposed method. We employ two
+methodologies for the neighbourhood selection
+function (Equation 4) to obtain localized few-shot
+examples. In particular, we index the collection
+of MS MARCO training set queries and then employ BM25 and a dense index of the [CLS] pooled
+BERT vectors to obtain the candidate top-k. In
+the existing naming convention, for BM25, we
+add the suffix ‘LEX’, whereas ‘SEM’ is the suffix for the embedded vector-based approach. For
+instance, ‘Zephyr-LEX-1S’ indicates 1-shot PRP,
+with BM25 being the similarity function to retrieve
+the top matching candidate. As argued in Section
+3.2, to add non-determinism to the process of example selection, we sample the top-k (k < 10)
+candidates from a neighbourhood of size K = 10.
+As an ablation, we employ a ‘relevant-document’
+only (i.e., without the negatives) few-shot approach
+to observe if using only the relevant document is
+sufficient. This requires modifying the prompt such
+that the example triple we input to an LLM becomes a pair ⟨Q′,RQ′ ⟩. We add the suffix ‘RO’ to
+indicate a relevant-document-only few-shot. For
+instance, ‘Zephyr-LEX-1S-RO’ is a 1-shot PRP
+with BM25 similarity function and uses only the
+relevant documents as ICL examples.
+5 Results
+5.1 Main observations
+Examples significantly improve retrieval effectiveness. In answering RQ-1, it can be observed
+
+
+Table 2: A comparison between the 0-shot PRP (Qin et al., 2023) and our few-shot extension to it with two different
+neighborhood similarity functions to retrieve the examples. Each one-shot result reported in this table is an average
+over 5 runs with the standard deviations included in superscript. The best scores across all unsupervised approaches
+are bold-faced, and the overall best results are both bold-faced and underlined. Letters ato dare used to indicate the
+statistical significance of a retriever with Zephyr-0S, Zephyr-LEX-1S, Zephyr-SEM-1S, and monoT5.
+Type Retriever¯
+TREC DL’19 TREC DL’20
+J(Nk ) AP@100 nDCG@10¯
+J (Nk ) AP@100 nDCG@10
+Baseline
+BM25 n/a .2322 .4795 n/a .2719 .4950
+Contriever n/a .2910 .6346 n/a .3776 .6292
+FLAN-T5-0S n/a .3431 .6574 n/a .3654 .6184
+Zephyr-0S n/a .3220 .6420 n/a .3305 .5782
+Ours
+FLAN-T5-LEX-1S .267.3338(.0003)
+.6515(.0034) .244.3720(.0008)
+.6291(.0050)
+FLAN-T5-SEM-1S .352.3357(.0008)
+.6543(.0042) .370.3746(.0020)
+.6284(.0009)
+Zephyr-LEX-1S .267.3447(.0019)a
+.6742(.0005)a .244.3793(.0052)abc
+.6457(.0077)abc
+Zephyr-SEM-1S .352.3512(.0041)a
+.6785(.0028)a .370 .3824(.0019)abc
+.6480(.0033)abc
+Ablation
+FLAN-T5-1S .041.3279(.0023)
+.6418(.0033) .029.3733(.0024)
+.6204(.0019)
+Zephyr-1S .041.3440(.0029)a
+.6697(.0072)a .029.3565(.0026)
+.6001(.0043)
+Zephyr-LEX-1S-RO .267.3269(.0009)
+.6390(.0035) .244.3711(.0026)
+.6251(.0011)
+Zephyr-SEM-1S-RO .352.3096(.0013)
+.6137(.0027) .370.3444(.0019)
+.6021(.0021)
+Supervised monoT5 n/a .3570a .6998a n/a .3970a .6729a
+
+
+from Table 2 that on providing annotated pair-wise
+examples, retrieval effectiveness is improved in
+terms of nDCG@10 on both DL’19 and DL’20
+test queries. Specifically, in a zero-shot setting,
+FLAN-T5 outperforms Zephyr. In a few-shot setting, FLAN-T5 effectiveness either degrades or
+improves by a small margin (0.01 on nDCG@10)
+showing no significant change in effectiveness. A
+likely reason for this ineffectiveness of Flan-T5
+in a few-shot setting, as compared to Zephyr, can
+likely be attributed to the characteristic differences
+in their instruction tuning phases.
+Our approach is also competitive with monoT5
+(a supervised model), and is statistically indistinguishable from supervised approaches in-domain.
+Though we do not outperform a supervised approach, the fact that an unsupervised approach’s
+performance is close to that of a supervised one
+indicates that our proposed few-shot PRP method
+successfully leverages the benefits of a training
+set of query-relevance pairs without involving the
+complex stages and decision choices (related to,
+e.g., neural architecture, negative selection, distillation strategies etc.) as typically required for a
+supervised ranker.
+Similar queries yield effective examples. Concerning RQ-2, which is our core contribution in
+this work, we find that in considering the locality of
+a given annotated query to a test instance, we can
+further improve the effectiveness of ICL in ranking
+as shown in Rows 6 and 7 of Table 2. Our method
+
+also improves on a static baseline (i.e., where examples are not selected as per a similarity function
+but are rather chosen in a static manner).
+We further explore the effects of using both lexical and semantic similarity scoring functions, for
+example, selection. Additionally, while few-shot
+PRP significantly improves over a zero-shot baseline in all cases, our ablation using static examples
+does not.
+Due to both inverted index structures and approximate nearest neighbor indices, our approach
+has minimal overhead relative to random selection.
+Furthermore, as we select by query locality, our
+approach has no additional overhead incurred due
+to the increase in ranking depths.
+We find that in-domain selection by semantic
+similarity is more effective than lexical similarity,
+with retrieval effectiveness following a linear trend
+to Jaccard similarity. Much like standard retrieval
+a lexical model will suffer from term mismatch
+whereas a semantic model can find similar queries
+by sequence-level context.
+A higher number of examples yields greater precision at lower depths. In Figure 3, we observe
+that MAP@100 is monotonically increasing with
+increasing values of k - the number of examples
+in few-shot PRP. The metric nDCG@10 plateaus
+beyond k = 1. We posit that given the precisionorientated nature of re-ranking, a smaller value of
+kmay be preferable as this also saves computation
+time.
+
+However, if using our approach in a distillation
+setting for annotation to deeper ranks, it may be
+worthwhile to increase kbecause, in an offline process, this overhead would be less important. A
+likely reason for the plateau of nDCG@10 may be
+due to the “lost-in-the-middle” effect (Liu et al.,
+2023), which points to the characteristic behaviour
+that decoder-only models place greater importance
+on the start and end of a sequence. In the context
+of our task, it turns out that even a single annotated
+example is sufficient to differentiate relevant documents from non-relevant ones, thus avoiding any
+“lost-in-the-middle” type effects.
+In-domain examples improve effectiveness outof-domain. Regarding RQ-3, in Table 3 we
+present results using MSMARCO annotated
+queries with our selection method over out-ofdomain (OOD) corpora. As Zephyr was found
+to be more effective in a few-shot setting, we do
+not assess FLAN-T5 in this setting.
+An important observation is that the topical overlap of the similar queries (Nk) with the current
+input query is much lower for OOD, e.g., ‘.093’ for
+SciFact vs. ‘.370’ as obtained with the semantic
+neighbourhood for in-domain evaluation on TREC
+DL’20 (see Table 2). This is expected as the SciFact
+or Covid queries cover different topics of information needs as compared to the MSMARCO training
+set queries.
+Despite this reduced topical overlap of the fewshot examples, we observe that they are useful in
+
+Table 3: Evaluating (nDCG@10) re-ranking performance on top-20 BM25 retrieved documents in out-ofdomain settings. The query-document relevance pairs
+are retrieved from MS MARCO to construct the ICL
+example sets for other test collections. Here, only the
+BM25 and Zephyr-0S baselines, supervised monoT5
+ranker, and our localized 1S methods are compared. Letters ato dare used to indicate the statistical significance
+of a retriever with Zephyr-0S, Zephyr-LEX-1S, ZephyrSEM-1S, and monoT5 (paired t-test with p= 0.05).
+
+
+improving the zero-shot performance (the few-shot
+approach also outperforms monoT5 on the Covid
+dataset). Similar to Table 2, we observe a positive correlation between the topical overlap of the
+related information needs and the ranking effectiveness (higher topical overlap leads to better retrieval
+results). This finding is important as, beyond indomain tests, our approach shows generalisation on
+par with or exceeding a strong supervised model.
+In summary, we have shown that not only does
+our method require no parametric training, but being a non-parametric approach also enables it to
+adapt to changing corpora. It can perform competitively against both strong unsupervised and finetuned retrieval models. For a task such as retrieval
+augmented generation (Lewis et al., 2020), our
+model could be used as both the ‘retriever’ and the
+‘reader’.
+5.2 Qualitative analysis
+Table 4 shows an example when 1-shot PRP
+(Zephyr-1S) can improve the rank of a relevant
+document from 16 to 1 thus contributing to a substantial increase in nDCG@10 value. In this case,
+the example query ‘Which airport in Paris is closest to the city’ is largely similar to the current input
+query ‘Is CDG airport in main Paris’, which means
+that the relevant document provided for the example query indeed provides useful signals to the generative process. It is likely that the underlined text
+segments of the example relevant document, e.g.,
+‘potential relocations’ and ‘expand the airport’ provide useful semantic cues - that the CDG airport
+
+
+Table 4: An example query from DL’19, where ZephyrSEM-1S improves the rank of a relevant document from
+16 to 1.
+Current query: Is CDG airport in main Paris?
+Relevant document: Paris Charles de Gaulle Airport IATA:
+CDG, ICAO: LFPG also known as Roissy Airport (name of
+the local district), is the largest international airport in France.
+It is named after Charles de Gaulle (1890-1970), leader of the
+Free French Forces during the Second World War, founder of
+the French Fifth Republic and President of France from 1959
+to 1969. Charles de Gaulle Airport is located within portions
+of several communes 25 km (16 mi) to the northeast of Paris.
+1-shot training query: Which airport in Paris is closest to the
+city?
+1-shot training relevant document: Paris Charles de Gaulle
+airport covers 32.38 square kilometres (12.50 sq mi) of land.
+The choice of this vast area was made based on the limited
+number of potential relocations and expropriations and the
+possibility to further expand the airport in the future.
+is close to the main city of Paris - which is what
+is the relevance criteria of the current query. It is
+interesting to note that in the case of true topical
+overlap, our approach acts implicitly in a retrievalaugmented setting, providing an example of how to
+complete a task and additional context with which
+to estimate relevance.
+5.3 Extending Few-shot PRP to Point-wise
+and Set-wise Cases
+Additionally, for the sake of completeness, we investigate the application of the few-shot approach
+on the other two modes of LLM inference for ranking, i.e., pointwise and setwise, as opposed to the
+pairwise mode reported so far. The results, as presented in Appendix B, show that none of these approaches benefit from the application of few-shot
+query-relevance examples most likely due to the
+complexity of these tasks itself as compared to the
+pairwise task - it is potentially easier to make a
+binary choice of preferring one document over the
+other as opposed to predicting a score (as in pointwise) or choosing a winner document from a set
+of more than 2 (usually of the order of 5 to 10)
+choices in case of setwise (similar to listwise).
+6 Conclusions and Future work
+We proposed a novel example selection process inspired by neural retrieval training processes, which
+improves unsupervised performance in a pair-wise
+ranking setting by exploiting in-context learning
+and is adaptable beyond a target domain. This
+non-parametric approach helps eliminate several
+decision choices involved in a supervised learning
+
+
+to-rank pipeline, e.g., the architecture, the pretraining, index construction, negative sampling,
+distillation, etc. Despite the simplicity, our experiments confirm that the few-shot PRP not only
+significantly outperforms the zero-shot PRP on indomain but also either statistically outperforms
+monoT5 (Covid dataset) or is statistically indistinguishable from it (SciFact dataset).
+As future work, we plan to explore ways of selecting a variable number of examples on a perquery basis (Parry et al., 2024) or consider an opendomain ICL approach of using unlabelled data as
+contexts, (Long et al., 2023), e.g., information from
+Wikipedia, for improving the ranking task further.
+Ethical Statement
+Noting to declare.
+Limitations
+We mainly focus on the open-source lightweight
+LLMs (≤7B) and whether the few-shot performance gains are much higher with larger LLMs
+(such as LLaMa-70B, GPT-3.5 or GPT-4) is yet
+to be investigated. We also consider only the ‘AllPairs’ method for reranking the top-100 documents,
+which was one of the techniques used in (Qin et al.,
+2023). While (Qin et al., 2023) proposed a pseudosorting algorithm as an approximate strategy requiring with linear complexity (as opposed to quadratic
+complexity for an exhaustive pairwise setting) and
+(Zhuang et al., 2024a) proposed further improvements using more effective sorting algorithms, our
+approach can be trivially applied under these setting to improve efficiency.

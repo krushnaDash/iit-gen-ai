@@ -60,43 +60,69 @@ def llm_function(model, tokenizer, question, option_a, option_b, option_c, optio
     6. Output is case-sensative: A,B,C or D
     Note: The model (Flan-T5-XL) and tokenizer is already initialized. Do not modify that section.
     '''
-    
-    # Create a prompt that asks the model to select the correct answer
-    prompt = f"""Question: {question}
 
-A. {option_a}
-B. {option_b}
-C. {option_c}
-D. {option_d}
+    options = {"A": option_a, "B": option_b, "C": option_c, "D": option_d}
+    opt_keys = list(options.keys())
 
-Answer with only the letter (A, B, C, or D) of the correct option:"""
+    # Token IDs for both scoring methods
+    true_id = tokenizer("true", add_special_tokens=False).input_ids[0]
+    false_id = tokenizer("false", add_special_tokens=False).input_ids[0]
+    yes_id = tokenizer("YES", add_special_tokens=False).input_ids[0]
+    no_id = tokenizer("NO", add_special_tokens=False).input_ids[0]
 
-    # Tokenize the prompt
-    inputs = tokenizer(prompt, return_tensors="pt")
-    
-    # Generate output
+    # Method 1: TF-1shot (true/false with 1 few-shot example pair)
+    fs = (
+        "Question: What language has the most native speakers worldwide?\n"
+        "Answer: Mandarin Chinese\n"
+        "Is this answer correct? true\n\n"
+        "Question: What language has the most native speakers worldwide?\n"
+        "Answer: English\n"
+        "Is this answer correct? false\n\n"
+    )
+    tf_prompts = [
+        f"{fs}Question: {question}\nAnswer: {options[k]}\n"
+        "Is this answer correct?"
+        for k in opt_keys
+    ]
+
+    # Method 2: S1-style (YES/NO with instruction, zero-shot)
+    yn_prompts = [
+        "Answer the following question by responding YES or NO in upper case only. "
+        "Nothing else should be in the output.\n\n"
+        f"Question: {question}\nProposed Answer: {options[k]}\n"
+        "Is this the correct answer? "
+        for k in opt_keys
+    ]
+
+    # Batch all 8 prompts in one forward pass
+    all_prompts = tf_prompts + yn_prompts
+    inputs = tokenizer(all_prompts, return_tensors="pt", padding=True, truncation=True)
+    decoder_input_ids = torch.full((8, 1), tokenizer.pad_token_id, dtype=torch.long)
+
     with torch.no_grad():
-        outputs = model.generate(
-            inputs.input_ids,
-            max_new_tokens=5,
-            do_sample=False,
-            num_beams=1
+        out = model(
+            input_ids=inputs.input_ids,
+            attention_mask=inputs.attention_mask,
+            decoder_input_ids=decoder_input_ids,
         )
-    
-    # Decode the output
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    # Extract the letter (A, B, C, or D) from the response
-    response = response.strip().upper()
-    
-    # Try to find A, B, C, or D in the response
-    match = re.search(r'[ABCD]', response)
-    if match:
-        final_output = match.group(0)
-    else:
-        # Fallback: if no letter found, default to A
+
+    logits = out.logits[:, 0, :]
+
+    # Extract raw scores for each method
+    tf_raw = [float(logits[i, true_id] - logits[i, false_id]) for i in range(4)]
+    yn_raw = [float(logits[i + 4, yes_id] - logits[i + 4, no_id]) for i in range(4)]
+
+    # Softmax-normalize each method's scores independently
+    tf_t = torch.softmax(torch.tensor(tf_raw), dim=0)
+    yn_t = torch.softmax(torch.tensor(yn_raw), dim=0)
+
+    # Combine normalized scores
+    combined = {k: float(tf_t[i] + yn_t[i]) for i, k in enumerate(opt_keys)}
+
+    best = max(combined, key=combined.get)
+    final_output = best.strip().upper()
+    if final_output not in {"A", "B", "C", "D"}:
         final_output = "A"
-    
     return final_output
 
 """
@@ -111,8 +137,8 @@ if __name__ == '__main__':
     option_d = sys.argv[5].strip()
 
     ##################### Loading Model and Tokenizer ########################
-    tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-xl")
-    model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl")
+    tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-xl",local_files_only=True)
+    model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl",local_files_only=True)
     ##########################################################################
 
     """  Call to function that will perform the computation. """
